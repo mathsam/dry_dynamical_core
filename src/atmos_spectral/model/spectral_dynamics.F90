@@ -32,7 +32,8 @@ use         transforms_mod, only: transforms_init,         transforms_end,      
                                   vor_div_from_uv_grid,    uv_grid_from_vor_div,      &
                                   horizontal_advection,    get_grid_domain,           &
                                   get_spec_domain,         grid_domain,               &
-                                  spectral_domain,         get_deg_lon, get_deg_lat
+                                  spectral_domain,         get_deg_lon, get_deg_lat,  &
+                                  get_cos_lat
 
 use     vert_advection_mod, only: vert_advection, SECOND_CENTERED, FOURTH_CENTERED, VAN_LEER_LINEAR, FINITE_VOLUME_PARABOLIC, &
                                   ADVECTIVE_FORM
@@ -572,6 +573,10 @@ else
   else if(initial_state_option == 'jablonowski_2006') then
     call jablonowski_2006(reference_sea_level_press, triang_trunc, vert_coord_option, vert_difference_option, &
                  scale_heights, surf_res, p_press, p_sigma, exponent, pk, bk, &
+                 vors(:,:,:,1), divs(:,:,:,1), ts(:,:,:,1), ln_ps(:,:,1), ug(:,:,:,1),  vg(:,:,:,1), &
+                 tg(:,:,:,1), psg(:,:,1), vorg, divg, surf_geopotential)
+  else if(initial_state_option == 'colliding_modons') then
+    call colliding_modons_init(reference_sea_level_press, triang_trunc, vert_difference_option, pk, bk, &
                  vors(:,:,:,1), divs(:,:,:,1), ts(:,:,:,1), ln_ps(:,:,1), ug(:,:,:,1),  vg(:,:,:,1), &
                  tg(:,:,:,1), psg(:,:,1), vorg, divg, surf_geopotential)
   else
@@ -1663,5 +1668,57 @@ deallocate(id_tr)
 return
 end subroutine spectral_diagnostics_end
 !===================================================================================
+
+subroutine colliding_modons_init(reference_sea_level_press, triang_trunc, vert_difference_option, pk, bk, &
+                 vors, divs, ts, ln_ps, ug,  vg, &
+                 tg, psg, vorg, divg, surf_geopotential)
+real,    intent(in) :: reference_sea_level_press
+logical, intent(in) :: triang_trunc
+character(len=*), intent(in) :: vert_difference_option
+real,    intent(out), dimension(:) :: pk, bk
+complex, intent(out), dimension(:,:,:) :: vors, divs, ts
+complex, intent(out), dimension(:,:) :: ln_ps
+real,    intent(out), dimension(:,:,:) :: ug, vg, tg
+real,    intent(out), dimension(:,:) :: psg
+real,    intent(out), dimension(:,:,:) :: vorg, divg
+real,    intent(out), dimension(:,:) :: surf_geopotential
+
+real, dimension(size(ug,2)) :: cos_lat, deg_lon
+real, allocatable, dimension(:,:) :: ln_psg
+real :: distance
+integer :: i, j
+real, parameter :: r0 = 0.0781 ! half width on a unit sphere
+real, parameter :: u0 = 40.0
+real, parameter :: PI = 3.1415926535897931d0
+
+call get_cos_lat (cos_lat)
+call get_deg_lon (deg_lon)
+
+do j = js, je
+  do i = is, ie
+    distance = acos(cos_lat(j)*cos(deg_lon(i)*PI/180.))
+    ug(i,j,:) = u0*exp(-(distance/r0)**2)
+
+    distance = acos(cos_lat(j)*cos(abs(deg_lon(i) -180.)*PI/180.))
+    ug(i,j,:) = ug(i,j,:) - u0*exp(-(distance/r0)**2)
+  enddo
+enddo
+
+vg(:,:,:) = 0.
+tg(:,:,:) = 300.
+
+call trans_grid_to_spherical(tg, ts)
+call trans_spherical_to_grid(ts, tg)
+call vor_div_from_uv_grid(ug, vg, vors, divs, triang=triang_trunc)
+call uv_grid_from_vor_div(vors, divs, ug, vg)
+call trans_spherical_to_grid(vors, vorg)
+call trans_spherical_to_grid(divs, divg)
+
+allocate(ln_psg(is:ie, js:je))
+ln_psg(:,:) = log(1.e5)
+call trans_grid_to_spherical(ln_psg, ln_ps)
+deallocate(ln_psg)
+
+end subroutine colliding_modons_init
 
 end module spectral_dynamics_mod
