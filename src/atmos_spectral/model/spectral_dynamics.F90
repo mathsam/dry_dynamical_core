@@ -576,7 +576,7 @@ else
                  vors(:,:,:,1), divs(:,:,:,1), ts(:,:,:,1), ln_ps(:,:,1), ug(:,:,:,1),  vg(:,:,:,1), &
                  tg(:,:,:,1), psg(:,:,1), vorg, divg, surf_geopotential)
   else if(initial_state_option == 'colliding_modons') then
-    call colliding_modons_init(reference_sea_level_press, triang_trunc, vert_difference_option, pk, bk, &
+    call colliding_modons_init(reference_sea_level_press, triang_trunc, vert_coord_option, vert_difference_option, pk, bk, &
                  vors(:,:,:,1), divs(:,:,:,1), ts(:,:,:,1), ln_ps(:,:,1), ug(:,:,:,1),  vg(:,:,:,1), &
                  tg(:,:,:,1), psg(:,:,1), vorg, divg, surf_geopotential)
   else
@@ -1669,12 +1669,14 @@ return
 end subroutine spectral_diagnostics_end
 !===================================================================================
 
-subroutine colliding_modons_init(reference_sea_level_press, triang_trunc, vert_difference_option, pk, bk, &
+subroutine colliding_modons_init(reference_sea_level_press, triang_trunc, vert_coord_option, vert_difference_option, pk, bk, &
                  vors, divs, ts, ln_ps, ug,  vg, &
                  tg, psg, vorg, divg, surf_geopotential)
+use   vert_coordinate_mod, only: compute_vert_coord
+use  press_and_geopot_mod, only: press_and_geopot_init
 real,    intent(in) :: reference_sea_level_press
 logical, intent(in) :: triang_trunc
-character(len=*), intent(in) :: vert_difference_option
+character(len=*), intent(in) :: vert_coord_option, vert_difference_option
 real,    intent(out), dimension(:) :: pk, bk
 complex, intent(out), dimension(:,:,:) :: vors, divs, ts
 complex, intent(out), dimension(:,:) :: ln_ps
@@ -1683,7 +1685,8 @@ real,    intent(out), dimension(:,:) :: psg
 real,    intent(out), dimension(:,:,:) :: vorg, divg
 real,    intent(out), dimension(:,:) :: surf_geopotential
 
-real, dimension(size(ug,2)) :: cos_lat, deg_lon
+real, dimension(size(ug,2)) :: cos_lat
+real, dimension(size(ug,1)) :: deg_lon
 real, allocatable, dimension(:,:) :: ln_psg
 real :: distance
 integer :: i, j
@@ -1691,11 +1694,16 @@ real, parameter :: r0 = 0.0781 ! half width on a unit sphere
 real, parameter :: u0 = 40.0
 real, parameter :: PI = 3.1415926535897931d0
 
+call compute_vert_coord(vert_coord_option, scale_heights, surf_res, exponent, p_press, p_sigma, reference_sea_level_press, pk, bk)
+
+surf_geopotential = 0.0
+call press_and_geopot_init(pk, bk, use_virtual_temperature, vert_difference_option)
+
 call get_cos_lat (cos_lat)
 call get_deg_lon (deg_lon)
 
-do j = js, je
-  do i = is, ie
+do j = 1, je-js+1
+  do i = 1, ie-is+1
     distance = acos(cos_lat(j)*cos(deg_lon(i)*PI/180.))
     ug(i,j,:) = u0*exp(-(distance/r0)**2)
 
@@ -1716,6 +1724,7 @@ call trans_spherical_to_grid(divs, divg)
 
 allocate(ln_psg(is:ie, js:je))
 ln_psg(:,:) = log(1.e5)
+psg(:,:)    = 1.e5
 call trans_grid_to_spherical(ln_psg, ln_ps)
 deallocate(ln_psg)
 
